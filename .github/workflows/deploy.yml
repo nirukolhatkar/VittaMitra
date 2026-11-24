@@ -1,0 +1,88 @@
+
+name: Deploy VittaMitra ZIP to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'vittamitra.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Extract VittaMitra ZIP
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          import pathlib
+          import shutil
+
+          archive = pathlib.Path("vittamitra.zip")
+          output = pathlib.Path("_site")
+
+          if not archive.exists():
+              raise SystemExit("ERROR: vittamitra.zip not found")
+
+          output.mkdir()
+
+          with zipfile.ZipFile(archive) as z:
+              for item in z.infolist():
+                  target = (output / item.filename).resolve()
+                  if not target.is_relative_to(output.resolve()):
+                      raise SystemExit("Unsafe ZIP path detected")
+              z.extractall(output)
+
+          # Remove one unnecessary enclosing folder if present
+          if not (output / "index.html").exists():
+              folders = [
+                  p for p in output.iterdir()
+                  if p.is_dir() and (p / "index.html").exists()
+              ]
+              if len(folders) == 1:
+                  temp = output.parent / "_site_temp"
+                  folders[0].rename(temp)
+                  shutil.rmtree(output)
+                  temp.rename(output)
+
+          if not (output / "index.html").exists():
+              raise SystemExit(
+                  "ERROR: index.html not found at website root. "
+                  "Check ZIP folder structure."
+              )
+
+          print("VittaMitra extracted successfully.")
+
+          PY
+
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        
